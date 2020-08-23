@@ -40,10 +40,19 @@ jobs:
         uses: actions/checkout@v2
       - name: Prepare environment variables
         run: |
+          git log -n 5
+
+          git log -1 --stat --oneline | grep -c Docker
           echo ::set-env name=BRANCH_REF::"$(echo '${{ github.ref }}' | sed -E 's/[^A-Za-z0-9]+/-/g')"
           echo ::set-env name=BASE_IMAGE::ubuntu:18.04
           echo ::set-env name=CORE_IMAGE::dependabot/dependabot-core
           echo ::set-env name=CORE_CI_IMAGE::dependabot/dependabot-core-ci
+          GIT_START_RANGE=HEAD~1
+          if [ -n "$GITHUB_BASE_REF" ]; then
+            GIT_START_RANGE=$GITHUB_BASE_REF
+          fi
+          git diff --name-only $GIT_START_RANGE..HEAD
+          echo ::set-env name=DOCKER_HAS_CHANGED::"$(git diff --name-only $GIT_START_RANGE..HEAD | grep -c Docker)"
       - name: Log in to Docker registry
         run: |
           if [ -n "${{ secrets.DOCKER_USERNAME }}" ] && [ -n "${{ secrets.DOCKER_PASSWORD }}" ]; then
@@ -60,6 +69,7 @@ jobs:
           docker pull "$CORE_CI_IMAGE:ci--$BRANCH_REF" ||
             "$CORE_CI_IMAGE:latest" || true
       - name: Build dependabot-core image
+        if: env.DOCKER_HAS_CHANGED != '0'
         run: |
           docker build \
             -t "$CORE_IMAGE:latest" \
@@ -74,6 +84,7 @@ jobs:
         run: |
           docker push "$CORE_CI_IMAGE:core--$BRANCH_REF"
       - name: Build dependabot-core-ci image
+        if: env.DOCKER_HAS_CHANGED != '0'
         run: |
           rm .dockerignore
           docker build \
